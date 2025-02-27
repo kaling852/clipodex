@@ -2,6 +2,12 @@
 
 A minimalist clipboard manager for storing and accessing frequently used text snippets. Built with Flutter for desktop.
 
+![Main View](screenshots/main.png)
+
+Add new commands easily:
+
+![Add New Clip](screenshots/add_clip.png)
+
 ## Features
 
 - 🌙 Dark theme interface
