@@ -1,16 +1,45 @@
-# clipodex
+# Clipodex
 
-A simple desktop app that lets you store, copy, and paste text snippets instantly
+A minimalist clipboard manager for storing and accessing frequently used text snippets. Built with Flutter for desktop.
 
-## Getting Started
+## Features
 
-This project is a starting point for a Flutter application.
+- 🌙 Dark theme interface
+- 🚀 One-click copy to clipboard
 
-A few resources to get you started if this is your first Flutter project:
+## Development
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+### Prerequisites
+- Flutter (latest stable version)
+- Dart SDK
+- Your preferred IDE (VS Code, Android Studio, etc.)
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+### Setup
+```bash
+# Clone the repository
+git clone https://github.com/kaling852/clipodex.git
+
+# Navigate to project directory
+cd clipodex
+
+# Install dependencies
+flutter pub get
+
+# Run the app
+flutter run
+```
+
+## Usage
+
+1. Click the '+' button to add a new snippet
+2. Enter a title and the content you want to save
+3. Click any snippet to copy its content to clipboard
+4. Use the edit mode to modify or delete existing snippets
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
