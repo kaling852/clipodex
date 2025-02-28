@@ -28,5 +28,7 @@
 	<string>MainMenu</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
+	<key>NSClipboardUsageDescription</key>
+	<string>This app needs access to clipboard for copying commands</string>
 </dict>
 </plist>
