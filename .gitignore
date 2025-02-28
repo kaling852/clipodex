@@ -16,6 +16,11 @@ build/
 *.iws
 .DS_Store
 
+# Build outputs
+*.dmg
+*.app
+*.zip
+
 # Android specific
 **/android/**/gradle-wrapper.jar
 **/android/.gradle
@@ -56,8 +61,12 @@ build/
 **/ios/Runner/GeneratedPluginRegistrant.*
 
 # macOS specific
-**/macos/Flutter/GeneratedPluginRegistrant.*
+**/macos/**/gradle-wrapper.jar
 **/macos/Flutter/ephemeral
+**/macos/Flutter/GeneratedPluginRegistrant.*
+**/macos/Flutter/Flutter-Debug.xcconfig
+**/macos/Flutter/Flutter-Release.xcconfig
+**/macos/Flutter/Flutter-Profile.xcconfig
 
 # Windows specific
 **/windows/flutter/generated_plugin_registrant.cc
