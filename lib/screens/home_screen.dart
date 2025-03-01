@@ -147,50 +147,33 @@ class _HomeScreenState extends State<HomeScreen> {
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
               ),
-              trailing: Row(
+              trailing: _isEditing ? Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text(
-                    _formatDate(clip.createdAt),
-                    style: Theme.of(context).textTheme.bodySmall,
+                  // Edit button
+                  IconButton(
+                    icon: const Icon(Icons.edit_note, size: 20),
+                    onPressed: () => _showClipDialog(clip: clip),
+                    tooltip: 'Edit Clip',
                   ),
-                  if (_isEditing) ...[
-                    const SizedBox(width: 8),
-                    // Edit button
-                    IconButton(
-                      icon: const Icon(Icons.edit_note, size: 20),
-                      onPressed: () => _showClipDialog(clip: clip),
-                      tooltip: 'Edit Clip',
-                    ),
-                    // Delete button
-                    IconButton(
-                      icon: const Icon(Icons.delete, size: 20),
-                      onPressed: () async {
-                        await _db.deleteClip(clip.id);
-                        _loadClips();
-                      },
-                      tooltip: 'Delete Clip',
-                    ),
-                  ],
+                  // Delete button
+                  IconButton(
+                    icon: const Icon(Icons.delete, size: 20),
+                    onPressed: () async {
+                      await _db.deleteClip(clip.id);
+                      _loadClips();
+                    },
+                    tooltip: 'Delete Clip',
+                  ),
                 ],
-              ),
+              ) : null,
               onTap: () {
                 Clipboard.setData(ClipboardData(text: clip.content));
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
-                    content: Text(
-                      'Copied: ${clip.content.length > 50 ? '${clip.content.substring(0, 50)}...' : clip.content}',
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
+                    content: Text('Copied: ${clip.content.length > 50 ? '${clip.content.substring(0, 50)}...' : clip.content}'),
                     duration: const Duration(seconds: 2),
                     behavior: SnackBarBehavior.floating,
-                    action: SnackBarAction(
-                      label: 'Dismiss',
-                      onPressed: () {
-                        ScaffoldMessenger.of(context).hideCurrentSnackBar();
-                      },
-                    ),
                   ),
                 );
               },
