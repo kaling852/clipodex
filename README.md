@@ -2,10 +2,8 @@
 
 A minimalist clipboard manager for storing and accessing frequently used text snippets. Built with Flutter for desktop. The more you use it, the better it gets at organizing your frequently used text.
 
-<img src="screenshots/screenshot_1.png" width="600" alt="Main View">
-<img src="screenshots/screenshot_1.png" width="600" alt="Main View with Snack Bar">
-<img src="screenshots/screenshot_1.png" width="600" alt="Filter">
-<img src="screenshots/screenshot_1.png" width="600" alt="Filtered Main View">
+<img src="screenshots/screenshot_1.png" width="400" alt="Main View"><img src="screenshots/screenshot_2.png" width="400" alt="Main View with Snack Bar">
+<img src="screenshots/screenshot_3.png" width="400" alt="Filter"><img src="screenshots/screenshot_4.png" width="400" alt="Filtered Main View">
 
 
 ## Quick Start
