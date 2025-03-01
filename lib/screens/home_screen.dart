@@ -49,7 +49,6 @@ class _HomeScreenState extends State<HomeScreen> {
                 controller: titleController,
                 decoration: const InputDecoration(
                   labelText: 'Title',
-                  hintText: 'Enter clip title',
                   isDense: true,
                 ),
               ),
@@ -58,7 +57,6 @@ class _HomeScreenState extends State<HomeScreen> {
                 controller: contentController,
                 decoration: const InputDecoration(
                   labelText: 'Content',
-                  hintText: 'Enter clip content',
                   isDense: true,
                 ),
                 maxLines: 3,
