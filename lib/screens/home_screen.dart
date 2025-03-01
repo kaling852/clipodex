@@ -1,7 +1,9 @@
+import 'dart:math';
 import 'package:clipodex/theme/app_colors.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';  // Add this import for Clipboard
+import 'package:flutter/services.dart';
 import '../data/database_helper.dart';
+import '../widgets/clip_dialog.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -14,6 +16,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final DatabaseHelper _db = DatabaseHelper();
   List<ClipItem> _clips = [];
   bool _isEditing = false;
+  List<Tag> _selectedFilters = [];
 
   @override
   void initState() {
@@ -23,48 +26,109 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _loadClips() async {
     final clips = await _db.getAllClips();
-    setState(() {
-      _clips = clips;
+    
+    if (_selectedFilters.isEmpty) {
+      final sortedClips = List<ClipItem>.from(clips)
+        ..sort((a, b) {
+          if (a.copyCount != b.copyCount) {
+            return b.copyCount.compareTo(a.copyCount);
+          }
+          return a.position.compareTo(b.position);
+        });
+      
+      setState(() => _clips = sortedClips);
+      return;
+    }
+
+    final filteredClips = <ClipItem>[];
+    for (final clip in clips) {
+      final clipTags = await _db.getTagsForClip(clip.id);
+      if (_selectedFilters.any((filterTag) => 
+        clipTags.any((clipTag) => clipTag.id == filterTag.id)
+      )) {
+        filteredClips.add(clip);
+      }
+    }
+    
+    filteredClips.sort((a, b) {
+      if (a.copyCount != b.copyCount) {
+        return b.copyCount.compareTo(a.copyCount);
+      }
+      return a.position.compareTo(b.position);
     });
+    
+    setState(() => _clips = filteredClips);
   }
 
   Future<void> _showClipDialog({ClipItem? clip}) async {
-    // If clip is provided, we're editing, otherwise we're adding
-    final bool isEditing = clip != null;
-    final titleController = TextEditingController(text: clip?.title);
-    final contentController = TextEditingController(text: clip?.content);
+    showDialog(
+      context: context,
+      builder: (context) => ClipDialog(
+        clip: clip,
+        db: _db,
+        onSave: (title, content, tags) async {
+          final position = clip?.position ?? await _getNextPosition();
+          final clipData = ClipItem(
+            id: clip?.id ?? DateTime.now().toString(),
+            title: title,
+            content: content,
+            position: position,
+            createdAt: clip?.createdAt ?? DateTime.now(),
+          );
+          
+          if (clip != null) {
+            await _db.updateClip(clipData, tags);
+          } else {
+            await _db.insertClip(clipData, tags);
+          }
+          _loadClips();
+        },
+      ),
+    );
+  }
 
-    return showDialog(
+  Future<int> _getNextPosition() async {
+    final clips = await _db.getAllClips();
+    return clips.isEmpty ? 0 : clips.map((c) => c.position).reduce(max) + 1;
+  }
+
+  Future<Tag?> _showTagDialog({List<Tag> selectedTags = const []}) async {
+    final textController = TextEditingController();
+    final existingTags = await _db.getAllTags();
+    
+    // Filter out already selected tags from suggestions
+    final availableTags = existingTags.where(
+      (tag) => !selectedTags.any((selected) => selected.id == tag.id)
+    ).toList();
+
+    return showDialog<Tag>(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text(isEditing ? 'Edit Clip' : 'Add New Clip'),
-        contentPadding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
-        content: SizedBox(
-          width: 400,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              TextField(
-                controller: titleController,
-                decoration: const InputDecoration(
-                  labelText: 'Title',
-                  isDense: true,
-                ),
+        title: const Text('Add Tag'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: textController,
+              decoration: const InputDecoration(
+                labelText: 'Tag Name',
+                hintText: 'Enter new tag name',
               ),
-              const SizedBox(height: 24),
-              TextField(
-                controller: contentController,
-                decoration: const InputDecoration(
-                  labelText: 'Content',
-                  isDense: true,
-                ),
-                maxLines: 3,
+            ),
+            if (availableTags.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              const Text('Or select existing tag:'),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                children: availableTags.map((tag) => ActionChip(
+                  label: Text(tag.name),
+                  onPressed: () => Navigator.pop(context, tag),
+                )).toList(),
               ),
             ],
-          ),
+          ],
         ),
-        actionsPadding: const EdgeInsets.fromLTRB(24, 24, 24, 16),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
@@ -72,28 +136,226 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           FilledButton(
             onPressed: () async {
-              final title = titleController.text.trim();
-              final content = contentController.text.trim();
-              
-              if (title.isNotEmpty && content.isNotEmpty) {
-                final clipData = ClipItem(
-                  id: clip?.id ?? DateTime.now().toString(),
-                  title: title,
-                  content: content,
-                  createdAt: clip?.createdAt ?? DateTime.now(),
-                );
-                
-                if (isEditing) {
-                  await _db.updateClip(clipData);
-                } else {
-                  await _db.insertClip(clipData);
+              final name = textController.text.trim();
+              if (name.isNotEmpty) {
+                // Check for duplicate tag names
+                if (existingTags.any((t) => t.name.toLowerCase() == name.toLowerCase())) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Tag "$name" already exists')),
+                  );
+                  return;
                 }
                 
-                Navigator.pop(context);
-                _loadClips();
+                // Check tag limit (15)
+                if (existingTags.length >= 15) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Maximum number of tags (15) reached')),
+                  );
+                  return;
+                }
+                
+                final tag = Tag(
+                  id: DateTime.now().toString(),
+                  name: name,
+                );
+                await _db.createTag(tag);
+                Navigator.pop(context, tag);
               }
             },
-            child: Text(isEditing ? 'Save' : 'Add'),
+            child: const Text('Add'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showFilterDialog() async {
+    final allTags = await _db.getAllTags();
+    // Create a new list from current filters
+    List<Tag> tempSelectedFilters = List.from(_selectedFilters);
+
+    await showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          title: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text('Filter by Tags'),
+              if (tempSelectedFilters.isNotEmpty)
+                IconButton(
+                  icon: const Icon(Icons.clear_all),
+                  onPressed: () {
+                    setState(() {
+                      tempSelectedFilters.clear();
+                    });
+                  },
+                  tooltip: 'Clear Filters',
+                ),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: allTags.map((tag) => FilterChip(
+                  label: Text('#${tag.name}'),
+                  // Compare by ID instead of object
+                  selected: tempSelectedFilters.any((t) => t.id == tag.id),
+                  onSelected: (selected) {
+                    setState(() {
+                      if (selected) {
+                        tempSelectedFilters.add(tag);
+                      } else {
+                        tempSelectedFilters.removeWhere((t) => t.id == tag.id);
+                      }
+                    });
+                  },
+                )).toList(),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                // Update parent state and reload
+                this.setState(() {
+                  _selectedFilters = List.from(tempSelectedFilters);
+                });
+                _loadClips();
+                Navigator.pop(context);
+              },
+              child: const Text('Apply'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showTagManagementDialog() async {
+    final allTags = await _db.getAllTags();
+    final Map<String, int> tagUsage = {};
+    
+    // Count usage for each tag
+    for (var tag in allTags) {
+      final clips = await _db.getClipsWithTag(tag.id);
+      tagUsage[tag.id] = clips.length;
+    }
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          title: const Text('Manage Tags'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ...allTags.map((tag) {
+                  final useCount = tagUsage[tag.id] ?? 0;
+                  return ListTile(
+                    title: Text('#${tag.name}'),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text('$useCount clips', 
+                          style: TextStyle(
+                            color: useCount == 0 ? Colors.red : Colors.grey,
+                            fontSize: 12,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        IconButton(
+                          icon: const Icon(Icons.edit, size: 20),
+                          onPressed: () => _showTagRenameDialog(tag, onRenamed: () {
+                            Navigator.pop(context);
+                            _showTagManagementDialog(); // Refresh
+                          }),
+                          tooltip: 'Rename Tag',
+                        ),
+                        if (useCount == 0)
+                          IconButton(
+                            icon: const Icon(Icons.delete_outline, size: 20),
+                            onPressed: () async {
+                              await _db.deleteTag(tag.id);
+                              Navigator.pop(context);
+                              _showTagManagementDialog(); // Refresh
+                            },
+                            tooltip: 'Delete Unused Tag',
+                          ),
+                      ],
+                    ),
+                  );
+                }).toList(),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Close'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showTagRenameDialog(Tag tag, {required Function onRenamed}) async {
+    final textController = TextEditingController(text: tag.name);
+    final existingTags = await _db.getAllTags();
+
+    return showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Rename Tag'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: textController,
+              decoration: const InputDecoration(
+                labelText: 'New Tag Name',
+              ),
+              autofocus: true,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              final newName = textController.text.trim();
+              if (newName.isEmpty) return;
+
+              // Check for duplicate names
+              if (existingTags.any((t) => 
+                t.id != tag.id && 
+                t.name.toLowerCase() == newName.toLowerCase()
+              )) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Tag "$newName" already exists')),
+                );
+                return;
+              }
+
+              await _db.renameTag(tag.id, newName);
+              Navigator.pop(context);
+              onRenamed();
+              _loadClips(); // Refresh clips to update tags
+            },
+            child: const Text('Rename'),
           ),
         ],
       ),
@@ -108,13 +370,41 @@ class _HomeScreenState extends State<HomeScreen> {
         title: const Text('Clipodex'),
         backgroundColor: AppColors.surface.withOpacity(0.9),
         actions: [
-          // Add button
+          if (_isEditing)
+            IconButton(
+              icon: const Icon(Icons.sell_outlined),
+              onPressed: _showTagManagementDialog,
+              tooltip: 'Manage Tags',
+            ),
+          IconButton(
+            icon: Badge(
+              isLabelVisible: _selectedFilters.isNotEmpty,
+              label: Text(_selectedFilters.length.toString()),
+              child: const Icon(Icons.filter_list),
+            ),
+            onPressed: () async {
+              final hasTags = await _db.getAllTags().then((tags) => tags.isNotEmpty);
+              final hasTaggedClips = await _db.hasClipsWithTags();
+              
+              if (!hasTags || !hasTaggedClips) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('No tags available'),
+                    duration: Duration(seconds: 2),
+                  ),
+                );
+                return;
+              }
+              
+              _showFilterDialog();
+            },
+            tooltip: 'Filter by Tags',
+          ),
           IconButton(
             icon: const Icon(Icons.add),
             onPressed: () => _showClipDialog(),
             tooltip: 'Add New Clip',
           ),
-          // Edit toggle button
           IconButton(
             icon: Icon(_isEditing ? Icons.check : Icons.edit),
             onPressed: () {
@@ -124,49 +414,97 @@ class _HomeScreenState extends State<HomeScreen> {
             },
             tooltip: _isEditing ? 'Save' : 'Edit',
           ),
-          const SizedBox(width: 8), // Add some padding at the end
+          const SizedBox(width: 8),
         ],
       ),
       body: ListView.builder(
-        padding: const EdgeInsets.only(top: kToolbarHeight + 16), // AppBar height + extra space
+        padding: const EdgeInsets.only(top: kToolbarHeight + 16),
         itemCount: _clips.length,
         itemBuilder: (context, index) {
           final clip = _clips[index];
           return Card(
             margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             child: ListTile(
+              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               title: Text(
                 clip.title,
-                style: Theme.of(context).textTheme.titleMedium,
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                ),
               ),
-              subtitle: Text(
-                clip.content,
-                style: Theme.of(context).textTheme.bodyMedium,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
+              subtitle: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const SizedBox(height: 4),
+                  Text(
+                    clip.content,
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      fontSize: 13,
+                    ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 6),
+                  FutureBuilder<List<Tag>>(
+                    future: _db.getTagsForClip(clip.id),
+                    builder: (context, snapshot) {
+                      if (!snapshot.hasData || snapshot.data!.isEmpty) return const SizedBox();
+                      final tags = snapshot.data!;
+                      return Wrap(
+                        spacing: 4,
+                        runSpacing: 4,
+                        children: tags.map((tag) => Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: Theme.of(context).colorScheme.surfaceVariant,
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            '#${tag.name}',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Theme.of(context).colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        )).toList(),
+                      );
+                    },
+                  ),
+                ],
               ),
               trailing: _isEditing ? Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  // Edit button
                   IconButton(
                     icon: const Icon(Icons.edit_note, size: 20),
                     onPressed: () => _showClipDialog(clip: clip),
                     tooltip: 'Edit Clip',
                   ),
-                  // Delete button
                   IconButton(
                     icon: const Icon(Icons.delete, size: 20),
                     onPressed: () async {
                       await _db.deleteClip(clip.id);
+                      
+                      // Check if we need to clear filters
+                      final hasTaggedClips = await _db.hasClipsWithTags();
+                      if (!hasTaggedClips) {
+                        setState(() {
+                          _selectedFilters.clear();  // Clear filters if no tagged clips remain
+                        });
+                      }
+                      
                       _loadClips();
                     },
                     tooltip: 'Delete Clip',
                   ),
                 ],
               ) : null,
-              onTap: () {
-                Clipboard.setData(ClipboardData(text: clip.content));
+              onTap: () async {
+                await Clipboard.setData(ClipboardData(text: clip.content));
+                await _db.incrementCopyCount(clip.id);
+                _loadClips(); // Refresh to update order
+                
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
                     content: Text('Copied: ${clip.content.length > 50 ? '${clip.content.substring(0, 50)}...' : clip.content}'),
@@ -180,9 +518,5 @@ class _HomeScreenState extends State<HomeScreen> {
         },
       ),
     );
-  }
-
-  String _formatDate(DateTime date) {
-    return '${date.day}/${date.month}/${date.year} ${date.hour}:${date.minute.toString().padLeft(2, '0')}';
   }
 } 
