@@ -1,16 +1,52 @@
 # Clipodex
 
-A minimalist clipboard manager for storing and accessing frequently used text snippets. Built with Flutter for desktop.
+A minimalist clipboard manager for storing and accessing frequently used text snippets. Built with Flutter for desktop. The more you use it, the better it gets at organizing your frequently used text.
 
-<img src="screenshots/main.png" width="30%" alt="Main View">
-Add new commands easily:
-<img src="screenshots/add_clip.png" width="30%" alt="Add New Clip">
+<img src="screenshots/screenshot_1.png" width="600" alt="Main View">
+<img src="screenshots/screenshot_1.png" width="600" alt="Main View with Snack Bar">
+<img src="screenshots/screenshot_1.png" width="600" alt="Filter">
+<img src="screenshots/screenshot_1.png" width="600" alt="Filtered Main View">
 
+
+## Quick Start
+
+1. **Save Stuff**
+   - Hit + to add something new
+   - Give it a title you'll remember
+   - Add some tags if you want
+
+2. **Stay Organized**
+   - Tap anything to copy it
+   - Filter by tags to find things
+   - Hit edit to clean up when needed
+
+## Design Principles
+
+1. **Keep It Simple**
+   - No folders, just tags to find stuff later
+   - Add up to 3 tags per clip
+   - Clean interface that stays out of your way
+   - One tap to copy anything
+
+2. **Smart Organization**
+   - Use tags like hashtags (max 15 total)
+   - Filter to find related clips
+   - Unused tags clean up automatically
+   - Most-used clips float to the top
+
+3. **Focus on Usage**
+   - Frequently used clips stay easy to reach
+   - Edit mode only when you need it
+   - Tag management tucked away until needed
+   - Everything adapts to how you use it
 
 ## Features
 
-- 🌙 Dark theme interface
-- 🚀 One-click copy to clipboard
+- Save any text you copy often
+- One tap to copy
+- Find stuff with tags
+- Most-used clips sort to top
+- Clean up unused tags
 
 ## Development
 
@@ -33,13 +69,6 @@ flutter pub get
 # Run the app
 flutter run
 ```
-
-## Usage
-
-1. Click the '+' button to add a new snippet
-2. Enter a title and the content you want to save
-3. Click any snippet to copy its content to clipboard
-4. Use the edit mode to modify or delete existing snippets
 
 ## Contributing
 
