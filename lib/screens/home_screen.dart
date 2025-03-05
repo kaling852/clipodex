@@ -63,16 +63,18 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _showClipDialog({ClipItem? clip}) async {
     showDialog(
       context: context,
+      barrierDismissible: false,
       builder: (context) => ClipDialog(
         clip: clip,
         db: _db,
-        onSave: (title, content, tags) async {
+        onSave: (title, content, tags, isMasked) async {
           final position = clip?.position ?? await _getNextPosition();
           final clipData = ClipItem(
             id: clip?.id ?? DateTime.now().toString(),
             title: title,
             content: content,
             position: position,
+            isMasked: isMasked,
             createdAt: clip?.createdAt ?? DateTime.now(),
           );
           
@@ -96,13 +98,13 @@ class _HomeScreenState extends State<HomeScreen> {
     final textController = TextEditingController();
     final existingTags = await _db.getAllTags();
     
-    // Filter out already selected tags from suggestions
     final availableTags = existingTags.where(
       (tag) => !selectedTags.any((selected) => selected.id == tag.id)
     ).toList();
 
     return showDialog<Tag>(
       context: context,
+      barrierDismissible: false,
       builder: (context) => AlertDialog(
         title: const Text('Add Tag'),
         content: Column(
@@ -424,95 +426,90 @@ class _HomeScreenState extends State<HomeScreen> {
           final clip = _clips[index];
           return Card(
             margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: ListTile(
-              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              title: Text(
-                clip.title,
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w500,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                ListTile(
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  title: Row(
+                    children: [
+                      Expanded(child: Text(clip.title)),
+                    ],
+                  ),
+                  subtitle: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        clip.displayContent,
+                        style: TextStyle(
+                          fontFamily: clip.isMasked ? 'Monospace' : null,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      FutureBuilder<List<Tag>>(
+                        future: _db.getTagsForClip(clip.id),
+                        builder: (context, snapshot) {
+                          if (!snapshot.hasData || snapshot.data!.isEmpty) {
+                            return const SizedBox.shrink();
+                          }
+                          return Wrap(
+                            spacing: 4,
+                            children: snapshot.data!.map((tag) => Chip(
+                              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              label: Text(
+                                '#${tag.name}',
+                                style: const TextStyle(fontSize: 12),
+                              ),
+                              padding: const EdgeInsets.all(0),
+                              labelPadding: const EdgeInsets.symmetric(horizontal: 8),
+                            )).toList(),
+                          );
+                        },
+                      ),
+                    ],
+                  ),
+                  trailing: _isEditing ? Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.edit_note, size: 20),
+                        onPressed: () => _showClipDialog(clip: clip),
+                        tooltip: clip.isMasked ? 'Only title and tags can be edited' : 'Edit Clip',
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.delete, size: 20),
+                        onPressed: () async {
+                          await _db.deleteClip(clip.id);
+                          
+                          // Check if we need to clear filters
+                          final hasTaggedClips = await _db.hasClipsWithTags();
+                          if (!hasTaggedClips) {
+                            setState(() {
+                              _selectedFilters.clear();  // Clear filters if no tagged clips remain
+                            });
+                          }
+                          
+                          _loadClips();
+                        },
+                        tooltip: 'Delete Clip',
+                      ),
+                    ],
+                  ) : null,
+                  onTap: () async {
+                    await Clipboard.setData(ClipboardData(text: clip.content));
+                    await _db.incrementCopyCount(clip.id);
+                    _loadClips(); // Refresh to update order
+                    
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Copied: ${clip.content.length > 50 ? '${clip.content.substring(0, 50)}...' : clip.content}'),
+                        duration: const Duration(seconds: 2),
+                        behavior: SnackBarBehavior.floating,
+                      ),
+                    );
+                  },
                 ),
-              ),
-              subtitle: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const SizedBox(height: 4),
-                  Text(
-                    clip.content,
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      fontSize: 13,
-                    ),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 6),
-                  FutureBuilder<List<Tag>>(
-                    future: _db.getTagsForClip(clip.id),
-                    builder: (context, snapshot) {
-                      if (!snapshot.hasData || snapshot.data!.isEmpty) return const SizedBox();
-                      final tags = snapshot.data!;
-                      return Wrap(
-                        spacing: 4,
-                        runSpacing: 4,
-                        children: tags.map((tag) => Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: Theme.of(context).colorScheme.surfaceVariant,
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                          child: Text(
-                            '#${tag.name}',
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: Theme.of(context).colorScheme.onSurfaceVariant,
-                            ),
-                          ),
-                        )).toList(),
-                      );
-                    },
-                  ),
-                ],
-              ),
-              trailing: _isEditing ? Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  IconButton(
-                    icon: const Icon(Icons.edit_note, size: 20),
-                    onPressed: () => _showClipDialog(clip: clip),
-                    tooltip: 'Edit Clip',
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.delete, size: 20),
-                    onPressed: () async {
-                      await _db.deleteClip(clip.id);
-                      
-                      // Check if we need to clear filters
-                      final hasTaggedClips = await _db.hasClipsWithTags();
-                      if (!hasTaggedClips) {
-                        setState(() {
-                          _selectedFilters.clear();  // Clear filters if no tagged clips remain
-                        });
-                      }
-                      
-                      _loadClips();
-                    },
-                    tooltip: 'Delete Clip',
-                  ),
-                ],
-              ) : null,
-              onTap: () async {
-                await Clipboard.setData(ClipboardData(text: clip.content));
-                await _db.incrementCopyCount(clip.id);
-                _loadClips(); // Refresh to update order
-                
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('Copied: ${clip.content.length > 50 ? '${clip.content.substring(0, 50)}...' : clip.content}'),
-                    duration: const Duration(seconds: 2),
-                    behavior: SnackBarBehavior.floating,
-                  ),
-                );
-              },
+              ],
             ),
           );
         },

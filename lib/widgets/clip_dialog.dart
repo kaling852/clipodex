@@ -4,7 +4,7 @@ import '../data/database_helper.dart';
 class ClipDialog extends StatefulWidget {
   final ClipItem? clip;  // null for new clip, existing clip for edit
   final DatabaseHelper db;
-  final Function onSave;  // Callback when clip is saved
+  final Function(String title, String content, List<Tag> tags, bool isMasked) onSave;
 
   const ClipDialog({
     super.key,
@@ -21,13 +21,17 @@ class _ClipDialogState extends State<ClipDialog> {
   final titleController = TextEditingController();
   final contentController = TextEditingController();
   final selectedTags = <Tag>[];
+  bool isMasked = false;
 
   @override
   void initState() {
     super.initState();
-    titleController.text = widget.clip?.title ?? '';
-    contentController.text = widget.clip?.content ?? '';
-    _loadExistingTags();
+    if (widget.clip != null) {
+      titleController.text = widget.clip!.title;
+      contentController.text = widget.clip!.content;
+      isMasked = widget.clip!.isMasked;
+      _loadExistingTags();
+    }
   }
 
   Future<void> _loadExistingTags() async {
@@ -49,6 +53,7 @@ class _ClipDialogState extends State<ClipDialog> {
 
     return showDialog<Tag>(
       context: context,
+      barrierDismissible: false,  // Prevent tap outside to dismiss
       builder: (context) => AlertDialog(
         title: const Text('Add Tag'),
         content: Column(
@@ -115,63 +120,118 @@ class _ClipDialogState extends State<ClipDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      title: Text(widget.clip != null ? 'Edit Clip' : 'Add New Clip'),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          TextField(
-            controller: titleController,
-            decoration: const InputDecoration(labelText: 'Title'),
-          ),
-          const SizedBox(height: 16),
-          TextField(
-            controller: contentController,
-            decoration: const InputDecoration(labelText: 'Content'),
-            maxLines: 3,
-          ),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              Text('Tags (${selectedTags.length}/3):'),
-              IconButton(
-                icon: const Icon(Icons.add),
-                onPressed: selectedTags.length >= 3 ? null : () async {
-                  final tag = await _showTagDialog();
-                  if (tag != null && selectedTags.length < 3) {
-                    setState(() => selectedTags.add(tag));
-                  }
-                },
+    return Dialog(
+      child: Container(
+        width: MediaQuery.of(context).size.width * 0.8, // Make dialog wider
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              widget.clip != null ? 'Edit Clip' : 'Add New Clip',
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: titleController,
+              decoration: const InputDecoration(labelText: 'Title'),
+            ),
+            const SizedBox(height: 16),
+            if (widget.clip?.isMasked ?? false) 
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  TextField(
+                    controller: TextEditingController(text: '•' * 12),
+                    enabled: false,
+                    decoration: const InputDecoration(
+                      labelText: 'Content (Masked)',
+                    ),
+                    maxLines: 1,
+                  ),
+                  const Padding(
+                    padding: EdgeInsets.only(top: 8, left: 4),
+                    child: Text(
+                      'Content cannot be edited in masked clips',
+                      style: TextStyle(
+                        color: Colors.grey,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ),
+                ],
+              )
+            else
+              TextField(
+                controller: contentController,
+                decoration: const InputDecoration(labelText: 'Content'),
+                maxLines: 3,
+              ),
+            if (widget.clip == null) ...[
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Checkbox(
+                    value: isMasked,
+                    onChanged: (value) => setState(() => isMasked = value ?? false),
+                  ),
+                  Expanded(
+                    child: const Text('Mask Content (Cannot be modified later)'),
+                  ),
+                ],
               ),
             ],
-          ),
-          Wrap(
-            spacing: 8,
-            children: selectedTags.map((tag) => Chip(
-              label: Text(tag.name),
-              onDeleted: () => setState(() => selectedTags.remove(tag)),
-            )).toList(),
-          ),
-        ],
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Text('Tags (${selectedTags.length}/3):'),
+                IconButton(
+                  icon: const Icon(Icons.add),
+                  onPressed: selectedTags.length >= 3 ? null : () async {
+                    final tag = await _showTagDialog();
+                    if (tag != null && selectedTags.length < 3) {
+                      setState(() => selectedTags.add(tag));
+                    }
+                  },
+                ),
+              ],
+            ),
+            Wrap(
+              spacing: 8,
+              children: selectedTags.map((tag) => Chip(
+                label: Text(tag.name),
+                onDeleted: () => setState(() => selectedTags.remove(tag)),
+              )).toList(),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Cancel'),
+                ),
+                const SizedBox(width: 8),
+                FilledButton(
+                  onPressed: () {
+                    final title = titleController.text.trim();
+                    final content = widget.clip?.isMasked ?? false 
+                        ? widget.clip!.content
+                        : contentController.text.trim();
+                    
+                    if (title.isNotEmpty && content.isNotEmpty) {
+                      widget.onSave(title, content, selectedTags, isMasked);
+                      Navigator.pop(context);
+                    }
+                  },
+                  child: const Text('Save'),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Cancel'),
-        ),
-        FilledButton(
-          onPressed: () async {
-            final title = titleController.text.trim();
-            final content = contentController.text.trim();
-            
-            if (title.isNotEmpty && content.isNotEmpty) {
-              await widget.onSave(title, content, selectedTags);
-              Navigator.pop(context);
-            }
-          },
-          child: const Text('Save'),
-        ),
-      ],
     );
   }
 } 

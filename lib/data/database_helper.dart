@@ -10,6 +10,7 @@ class ClipItem {
   final int position;
   final DateTime createdAt;
   final int copyCount;
+  final bool isMasked;
 
   ClipItem({
     required this.id,
@@ -17,8 +18,11 @@ class ClipItem {
     required this.content,
     required this.position,
     this.copyCount = 0,
+    this.isMasked = false,
     DateTime? createdAt,
   }) : createdAt = createdAt ?? DateTime.now();
+
+  String get displayContent => isMasked ? '•' * 12 : content;
 }
 
 class Tag {
@@ -51,7 +55,7 @@ class DatabaseHelper {
   }
 
   Future<Database> _initDatabase() async {
-    final directory = await getApplicationDocumentsDirectory();
+    final directory = await getApplicationSupportDirectory();
     final path = p.join(directory.path, 'clipodex.db');
 
     final db = sqlite3.open(path);
@@ -64,9 +68,38 @@ class DatabaseHelper {
         content TEXT NOT NULL,
         position INTEGER NOT NULL,
         copy_count INTEGER NOT NULL DEFAULT 0,
-        created_at TEXT NOT NULL
+        created_at TEXT NOT NULL,
+        is_masked INTEGER NOT NULL DEFAULT 0
       )
     ''');
+
+    // Migration: Add is_masked column if it doesn't exist
+    try {
+      final columns = db.select("PRAGMA table_info(clips)");
+      final hasMaskedColumn = columns.any((col) => col['name'] == 'is_masked');
+      
+      if (!hasMaskedColumn) {
+        db.execute('ALTER TABLE clips ADD COLUMN is_masked INTEGER NOT NULL DEFAULT 0');
+      }
+    } catch (e) {
+      // If there's an error, it's safer to recreate the database
+      db.execute('DROP TABLE IF EXISTS clips');
+      db.execute('DROP TABLE IF EXISTS tags');
+      db.execute('DROP TABLE IF EXISTS clip_tags');
+      
+      // Recreate tables
+      db.execute('''
+        CREATE TABLE clips (
+          id TEXT PRIMARY KEY,
+          title TEXT NOT NULL,
+          content TEXT NOT NULL,
+          position INTEGER NOT NULL,
+          copy_count INTEGER NOT NULL DEFAULT 0,
+          created_at TEXT NOT NULL,
+          is_masked INTEGER NOT NULL DEFAULT 0
+        )
+      ''');
+    }
 
     db.execute('''
       CREATE TABLE IF NOT EXISTS tags (
@@ -91,8 +124,8 @@ class DatabaseHelper {
   Future<void> insertClip(ClipItem clip, List<Tag> tags) async {
     final db = await database;
     db.execute(
-      'INSERT INTO clips (id, title, content, position, copy_count, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-      [clip.id, clip.title, clip.content, clip.position, clip.copyCount, clip.createdAt.toIso8601String()],
+      'INSERT INTO clips (id, title, content, position, copy_count, created_at, is_masked) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [clip.id, clip.title, clip.content, clip.position, clip.copyCount, clip.createdAt.toIso8601String(), clip.isMasked ? 1 : 0],
     );
 
     // Add tags
@@ -111,6 +144,7 @@ class DatabaseHelper {
       content: row['content'] as String,
       position: row['position'] as int,
       copyCount: row['copy_count'] as int,
+      isMasked: row['is_masked'] == 1,
       createdAt: DateTime.parse(row['created_at'] as String),
     )).toList();
   }
@@ -125,8 +159,8 @@ class DatabaseHelper {
   Future<void> updateClip(ClipItem clip, List<Tag> tags) async {
     final db = await database;
     db.execute(
-      'UPDATE clips SET title = ?, content = ?, position = ? WHERE id = ?',
-      [clip.title, clip.content, clip.position, clip.id]
+      'UPDATE clips SET title = ?, content = ?, position = ?, is_masked = ? WHERE id = ?',
+      [clip.title, clip.content, clip.position, clip.isMasked ? 1 : 0, clip.id]
     );
 
     // Update tags
@@ -197,6 +231,7 @@ class DatabaseHelper {
       content: row['content'] as String,
       position: row['position'] as int,
       copyCount: row['copy_count'] as int,
+      isMasked: row['is_masked'] == 1,
       createdAt: DateTime.parse(row['created_at'] as String),
     )).toList();
   }
