@@ -1,7 +1,8 @@
-import 'package:sqlite3/sqlite3.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 import 'dart:io';
+
+import 'package:sqlite3/sqlite3.dart';
 
 class ClipItem {
   final String id;
@@ -55,8 +56,16 @@ class DatabaseHelper {
   }
 
   Future<Database> _initDatabase() async {
-    final directory = await getApplicationSupportDirectory();
-    final path = p.join(directory.path, 'clipodex.db');
+    final directory = await getLibraryDirectory();
+    final dbDir = Directory(p.join(directory.path, 'Database'));
+    
+    // Ensure the directory exists
+    if (!await dbDir.exists()) {
+      await dbDir.create(recursive: true);
+    }
+    
+    final path = p.join(dbDir.path, 'clipodex.db');
+    print('Database path (sandboxed): $path');
 
     final db = sqlite3.open(path);
     
