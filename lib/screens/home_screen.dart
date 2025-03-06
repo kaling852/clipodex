@@ -1,9 +1,15 @@
 import 'dart:math';
+import 'package:clipodex/models/clip_item.dart';
+import 'package:clipodex/models/tag.dart';
 import 'package:clipodex/theme/app_colors.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../data/database_helper.dart';
-import '../widgets/clip_dialog.dart';
+import '../dialogs/clip_dialog.dart';
+import '../dialogs/filter_dialog.dart';
+import '../dialogs/tag_management_dialog.dart';
+import '../dialogs/welcome_dialog.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -22,6 +28,25 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _loadClips();
+    // Add a small delay to ensure the dialog shows up
+    Future.delayed(const Duration(milliseconds: 500), () {
+      if (mounted) {
+        _showWelcomeMessage();
+      }
+    });
+  }
+
+  Future<void> _showWelcomeMessage() async {
+    final prefs = await SharedPreferences.getInstance();
+    final hasSeenWelcome = prefs.getBool('has_seen_welcome') ?? false;
+
+    if (!hasSeenWelcome && mounted) {
+      await showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => const WelcomeDialog(),
+      );
+    }
   }
 
   Future<void> _loadClips() async {
@@ -94,272 +119,46 @@ class _HomeScreenState extends State<HomeScreen> {
     return clips.isEmpty ? 0 : clips.map((c) => c.position).reduce(max) + 1;
   }
 
-  Future<Tag?> _showTagDialog({List<Tag> selectedTags = const []}) async {
-    final textController = TextEditingController();
-    final existingTags = await _db.getAllTags();
-    
-    final availableTags = existingTags.where(
-      (tag) => !selectedTags.any((selected) => selected.id == tag.id)
-    ).toList();
-
-    return showDialog<Tag>(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        title: const Text('Add Tag'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: textController,
-              decoration: const InputDecoration(
-                labelText: 'Tag Name',
-                hintText: 'Enter new tag name',
-              ),
-            ),
-            if (availableTags.isNotEmpty) ...[
-              const SizedBox(height: 16),
-              const Text('Or select existing tag:'),
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 8,
-                children: availableTags.map((tag) => ActionChip(
-                  label: Text(tag.name),
-                  onPressed: () => Navigator.pop(context, tag),
-                )).toList(),
-              ),
-            ],
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () async {
-              final name = textController.text.trim();
-              if (name.isNotEmpty) {
-                // Check for duplicate tag names
-                if (existingTags.any((t) => t.name.toLowerCase() == name.toLowerCase())) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Tag "$name" already exists')),
-                  );
-                  return;
-                }
-                
-                // Check tag limit (15)
-                if (existingTags.length >= 15) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Maximum number of tags (15) reached')),
-                  );
-                  return;
-                }
-                
-                final tag = Tag(
-                  id: DateTime.now().toString(),
-                  name: name,
-                );
-                await _db.createTag(tag);
-                Navigator.pop(context, tag);
-              }
-            },
-            child: const Text('Add'),
-          ),
-        ],
-      ),
-    );
-  }
-
   Future<void> _showFilterDialog() async {
-    final allTags = await _db.getAllTags();
-    // Create a new list from current filters
-    List<Tag> tempSelectedFilters = List.from(_selectedFilters);
+    final hasTags = await _db.getAllTags().then((tags) => tags.isNotEmpty);
+    final hasTaggedClips = await _db.hasClipsWithTags();
+    
+    if (!hasTags || !hasTaggedClips) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No tags available'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
 
     await showDialog(
       context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setState) => AlertDialog(
-          title: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text('Filter by Tags'),
-              if (tempSelectedFilters.isNotEmpty)
-                IconButton(
-                  icon: const Icon(Icons.clear_all),
-                  onPressed: () {
-                    setState(() {
-                      tempSelectedFilters.clear();
-                    });
-                  },
-                  tooltip: 'Clear Filters',
-                ),
-            ],
-          ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: allTags.map((tag) => FilterChip(
-                  label: Text('#${tag.name}'),
-                  // Compare by ID instead of object
-                  selected: tempSelectedFilters.any((t) => t.id == tag.id),
-                  onSelected: (selected) {
-                    setState(() {
-                      if (selected) {
-                        tempSelectedFilters.add(tag);
-                      } else {
-                        tempSelectedFilters.removeWhere((t) => t.id == tag.id);
-                      }
-                    });
-                  },
-                )).toList(),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () {
-                // Update parent state and reload
-                this.setState(() {
-                  _selectedFilters = List.from(tempSelectedFilters);
-                });
-                _loadClips();
-                Navigator.pop(context);
-              },
-              child: const Text('Apply'),
-            ),
-          ],
-        ),
+      builder: (context) => FilterDialog(
+        selectedFilters: _selectedFilters,
+        db: _db,
+        onApply: (filters) {
+          setState(() {
+            _selectedFilters = filters;
+          });
+          _loadClips();
+        },
       ),
     );
   }
 
   Future<void> _showTagManagementDialog() async {
-    final allTags = await _db.getAllTags();
-    final Map<String, int> tagUsage = {};
-    
-    // Count usage for each tag
-    for (var tag in allTags) {
-      final clips = await _db.getClipsWithTag(tag.id);
-      tagUsage[tag.id] = clips.length;
-    }
-
-    showDialog(
+    await showDialog(
       context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setState) => AlertDialog(
-          title: const Text('Manage Tags'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                ...allTags.map((tag) {
-                  final useCount = tagUsage[tag.id] ?? 0;
-                  return ListTile(
-                    title: Text('#${tag.name}'),
-                    trailing: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text('$useCount clips', 
-                          style: TextStyle(
-                            color: useCount == 0 ? Colors.red : Colors.grey,
-                            fontSize: 12,
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        IconButton(
-                          icon: const Icon(Icons.edit, size: 20),
-                          onPressed: () => _showTagRenameDialog(tag, onRenamed: () {
-                            Navigator.pop(context);
-                            _showTagManagementDialog(); // Refresh
-                          }),
-                          tooltip: 'Rename Tag',
-                        ),
-                        if (useCount == 0)
-                          IconButton(
-                            icon: const Icon(Icons.delete_outline, size: 20),
-                            onPressed: () async {
-                              await _db.deleteTag(tag.id);
-                              Navigator.pop(context);
-                              _showTagManagementDialog(); // Refresh
-                            },
-                            tooltip: 'Delete Unused Tag',
-                          ),
-                      ],
-                    ),
-                  );
-                }).toList(),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Close'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Future<void> _showTagRenameDialog(Tag tag, {required Function onRenamed}) async {
-    final textController = TextEditingController(text: tag.name);
-    final existingTags = await _db.getAllTags();
-
-    return showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Rename Tag'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: textController,
-              decoration: const InputDecoration(
-                labelText: 'New Tag Name',
-              ),
-              autofocus: true,
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () async {
-              final newName = textController.text.trim();
-              if (newName.isEmpty) return;
-
-              // Check for duplicate names
-              if (existingTags.any((t) => 
-                t.id != tag.id && 
-                t.name.toLowerCase() == newName.toLowerCase()
-              )) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('Tag "$newName" already exists')),
-                );
-                return;
-              }
-
-              await _db.renameTag(tag.id, newName);
-              Navigator.pop(context);
-              onRenamed();
-              _loadClips(); // Refresh clips to update tags
-            },
-            child: const Text('Rename'),
-          ),
-        ],
+      builder: (context) => TagManagementDialog(
+        db: _db,
+        onRename: (tag) {
+          _loadClips(); // Refresh clips to update tags
+        },
+        onDelete: (tagId) {
+          _loadClips(); // Refresh clips to update tags
+        },
       ),
     );
   }
@@ -439,10 +238,12 @@ class _HomeScreenState extends State<HomeScreen> {
                   subtitle: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      const SizedBox(height: 4),
                       Text(
                         clip.displayContent,
                         style: TextStyle(
                           fontFamily: clip.isMasked ? 'Monospace' : null,
+                          color: Colors.grey[200],
                         ),
                       ),
                       const SizedBox(height: 8),
@@ -471,6 +272,23 @@ class _HomeScreenState extends State<HomeScreen> {
                   trailing: _isEditing ? Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
+                      IconButton(
+                        icon: Icon(clip.isMasked ? Icons.lock : Icons.lock_open),
+                        onPressed: () async {
+                          final updatedClip = ClipItem(
+                            id: clip.id,
+                            title: clip.title,
+                            content: clip.content,
+                            position: clip.position,
+                            copyCount: clip.copyCount,
+                            isMasked: !clip.isMasked,
+                            createdAt: clip.createdAt,
+                          );
+                          await _db.updateClip(updatedClip, await _db.getTagsForClip(clip.id));
+                          _loadClips();
+                        },
+                        tooltip: clip.isMasked ? 'Unmask Content' : 'Mask Content',
+                      ),
                       IconButton(
                         icon: const Icon(Icons.edit_note, size: 20),
                         onPressed: () => _showClipDialog(clip: clip),

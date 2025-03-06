@@ -7,13 +7,3 @@ class Tag {
     required this.name,
   });
 }
-
-class ClipTag {
-  final String clipId;
-  final String tagId;
-
-  ClipTag({
-    required this.clipId,
-    required this.tagId,
-  });
-} 

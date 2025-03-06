@@ -1,50 +1,10 @@
+import 'package:clipodex/models/tag.dart';
+import 'package:clipodex/models/clip_item.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 import 'dart:io';
 
 import 'package:sqlite3/sqlite3.dart';
-
-class ClipItem {
-  final String id;
-  final String title;
-  final String content;
-  final int position;
-  final DateTime createdAt;
-  final int copyCount;
-  final bool isMasked;
-
-  ClipItem({
-    required this.id,
-    required this.title,
-    required this.content,
-    required this.position,
-    this.copyCount = 0,
-    this.isMasked = false,
-    DateTime? createdAt,
-  }) : createdAt = createdAt ?? DateTime.now();
-
-  String get displayContent => isMasked ? '•' * 12 : content;
-}
-
-class Tag {
-  final String id;
-  final String name;
-
-  Tag({
-    required this.id,
-    required this.name,
-  });
-}
-
-class ClipTag {
-  final String clipId;
-  final String tagId;
-
-  ClipTag({
-    required this.clipId,
-    required this.tagId,
-  });
-}
 
 class DatabaseHelper {
   static Database? _db;

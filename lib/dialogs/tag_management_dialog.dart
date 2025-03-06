@@ -1,12 +1,17 @@
+import 'package:clipodex/models/tag.dart';
 import 'package:flutter/material.dart';
 import '../data/database_helper.dart';
 
 class TagManagementDialog extends StatefulWidget {
   final DatabaseHelper db;
+  final Function(Tag tag) onRename;
+  final Function(String tagId) onDelete;
 
   const TagManagementDialog({
     super.key,
     required this.db,
+    required this.onRename,
+    required this.onDelete,
   });
 
   @override
@@ -14,29 +19,97 @@ class TagManagementDialog extends StatefulWidget {
 }
 
 class _TagManagementDialogState extends State<TagManagementDialog> {
-  Map<String, int> tagUsage = {};
+  List<Tag> _allTags = [];
+  Map<String, int> _tagUsage = {};
 
   @override
   void initState() {
     super.initState();
-    _loadTagUsage();
+    _loadTags();
   }
 
-  Future<void> _loadTagUsage() async {
+  Future<void> _loadTags() async {
     final allTags = await widget.db.getAllTags();
-    final usage = <String, int>{};
+    final tagUsage = <String, int>{};
     
-    for (var tag in allTags) {
-      final clips = await widget.db.getClipsWithTag(tag.id);
-      usage[tag.id] = clips.length;
-    }
-
+    await Future.wait(
+      allTags.map((tag) => widget.db.getClipsWithTag(tag.id)
+        .then((clips) => tagUsage[tag.id] = clips.length)
+      ),
+    );
+    
     setState(() {
-      tagUsage = usage;
+      _allTags = allTags;
+      _tagUsage = tagUsage;
     });
   }
 
-  Future<void> _showRenameDialog(Tag tag) async {
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      child: Container(
+        width: MediaQuery.of(context).size.width * 0.5,
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text('Manage Tags', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                IconButton(
+                  icon: const Icon(Icons.close),
+                  onPressed: () => Navigator.pop(context),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Flexible(
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    ..._allTags.map((tag) {
+                      final useCount = _tagUsage[tag.id] ?? 0;
+                      return ListTile(
+                        title: Text('#${tag.name}'),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text('$useCount clips', 
+                              style: TextStyle(
+                                color: useCount == 0 ? Colors.red : Colors.grey,
+                                fontSize: 12,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            IconButton(
+                              icon: const Icon(Icons.edit, size: 20),
+                              onPressed: () => _showTagRenameDialog(tag),
+                              tooltip: 'Rename Tag',
+                            ),
+                            if (useCount == 0)
+                              IconButton(
+                                icon: const Icon(Icons.delete_outline, size: 20),
+                                onPressed: () => _confirmDeleteTag(tag),
+                                tooltip: 'Delete Unused Tag',
+                              ),
+                          ],
+                        ),
+                      );
+                    }).toList(),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showTagRenameDialog(Tag tag) async {
     final textController = TextEditingController(text: tag.name);
     final existingTags = await widget.db.getAllTags();
 
@@ -66,6 +139,7 @@ class _TagManagementDialogState extends State<TagManagementDialog> {
               final newName = textController.text.trim();
               if (newName.isEmpty) return;
 
+              // Check for duplicate names
               if (existingTags.any((t) => 
                 t.id != tag.id && 
                 t.name.toLowerCase() == newName.toLowerCase()
@@ -76,9 +150,14 @@ class _TagManagementDialogState extends State<TagManagementDialog> {
                 return;
               }
 
+              final updatedTag = Tag(
+                id: tag.id,
+                name: newName,
+              );
               await widget.db.renameTag(tag.id, newName);
               Navigator.pop(context);
-              setState(() {}); // Refresh the list
+              widget.onRename(updatedTag);
+              _loadTags(); // Refresh the tag list
             },
             child: const Text('Rename'),
           ),
@@ -87,81 +166,28 @@ class _TagManagementDialogState extends State<TagManagementDialog> {
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('Manage Tags'),
-      content: FutureBuilder<List<Tag>>(
-        future: widget.db.getAllTags(),
-        builder: (context, snapshot) {
-          if (!snapshot.hasData) {
-            return const Center(child: CircularProgressIndicator());
-          }
-
-          final allTags = snapshot.data!;
-          if (allTags.isEmpty) {
-            return const Text('No tags created yet');
-          }
-
-          // Sort tags by usage count (descending) and then alphabetically
-          final sortedTags = List<Tag>.from(allTags)
-            ..sort((a, b) {
-              final aCount = tagUsage[a.id] ?? 0;
-              final bCount = tagUsage[b.id] ?? 0;
-              if (aCount != bCount) {
-                return bCount.compareTo(aCount); // Sort by count descending
-              }
-              return a.name.compareTo(b.name); // Then alphabetically
-            });
-
-          return SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                ...sortedTags.map((tag) {
-                  final useCount = tagUsage[tag.id] ?? 0;
-                  return ListTile(
-                    title: Text('#${tag.name}'),
-                    trailing: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          '$useCount clips', 
-                          style: TextStyle(
-                            color: useCount == 0 ? Colors.red : Colors.grey,
-                            fontSize: 12,
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        IconButton(
-                          icon: const Icon(Icons.edit, size: 20),
-                          onPressed: () => _showRenameDialog(tag),
-                          tooltip: 'Rename Tag',
-                        ),
-                        if (useCount == 0)
-                          IconButton(
-                            icon: const Icon(Icons.delete_outline, size: 20),
-                            onPressed: () async {
-                              await widget.db.deleteTag(tag.id);
-                              setState(() {}); // Refresh the list
-                            },
-                            tooltip: 'Delete Unused Tag',
-                          ),
-                      ],
-                    ),
-                  );
-                }).toList(),
-              ],
-            ),
-          );
-        },
+  Future<void> _confirmDeleteTag(Tag tag) async {
+    return showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Tag'),
+        content: Text('Are you sure you want to delete the tag "#${tag.name}"?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              await widget.db.deleteTag(tag.id);
+              Navigator.pop(context); // Close confirmation dialog
+              widget.onDelete(tag.id);
+              _loadTags(); // Refresh the tag list
+            },
+            child: const Text('Delete'),
+          ),
+        ],
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Close'),
-        ),
-      ],
     );
   }
 } 

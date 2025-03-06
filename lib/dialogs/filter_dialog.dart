@@ -1,3 +1,4 @@
+import 'package:clipodex/models/tag.dart';
 import 'package:flutter/material.dart';
 import '../data/database_helper.dart';
 
