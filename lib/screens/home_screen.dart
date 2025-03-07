@@ -273,7 +273,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       IconButton(
-                        icon: Icon(clip.isMasked ? Icons.lock : Icons.lock_open),
+                        icon: Icon(clip.isMasked ? Icons.visibility_off : Icons.visibility),
                         onPressed: () async {
                           final updatedClip = ClipItem(
                             id: clip.id,
