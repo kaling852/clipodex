@@ -320,7 +320,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
-                        content: Text('Copied: ${clip.content.length > 50 ? '${clip.content.substring(0, 50)}...' : clip.content}'),
+                        content: Text('Copied: ${clip.isMasked ? '••••••••' : (clip.content.length > 50 ? '${clip.content.substring(0, 50)}...' : clip.content)}'),
                         duration: const Duration(seconds: 2),
                         behavior: SnackBarBehavior.floating,
                       ),
