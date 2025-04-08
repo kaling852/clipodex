@@ -23,6 +23,7 @@ class _HomeScreenState extends State<HomeScreen> {
   List<ClipItem> _clips = [];
   bool _isEditing = false;
   List<Tag> _selectedFilters = [];
+  Key _tagsKey = UniqueKey();
 
   @override
   void initState() {
@@ -33,6 +34,12 @@ class _HomeScreenState extends State<HomeScreen> {
       if (mounted) {
         _showWelcomeMessage();
       }
+    });
+  }
+
+  void _refreshTags() {
+    setState(() {
+      _tagsKey = UniqueKey();
     });
   }
 
@@ -108,6 +115,7 @@ class _HomeScreenState extends State<HomeScreen> {
           } else {
             await _db.insertClip(clipData, tags);
           }
+          _refreshTags();
           _loadClips();
         },
       ),
@@ -154,11 +162,43 @@ class _HomeScreenState extends State<HomeScreen> {
       builder: (context) => TagManagementDialog(
         db: _db,
         onRename: (tag) {
-          _loadClips(); // Refresh clips to update tags
+          _refreshTags();
+          _loadClips();
         },
         onDelete: (tagId) {
-          _loadClips(); // Refresh clips to update tags
+          _refreshTags();
+          _loadClips();
         },
+      ),
+    );
+  }
+
+  Widget _buildTagChips({
+    required List<Tag> tags,
+    required bool isFilter,
+    double spacing = 8,
+    double runSpacing = 8,
+    EdgeInsets? margin,
+  }) {
+    return Container(
+      margin: margin ?? const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: Wrap(
+        spacing: spacing,
+        runSpacing: runSpacing,
+        children: tags.map((tag) => FilterChip(
+          label: Text('#${tag.name}'),
+          selected: isFilter ? _selectedFilters.any((t) => t.id == tag.id) : false,
+          onSelected: isFilter ? (selected) async {
+            setState(() {
+              if (selected) {
+                _selectedFilters.add(tag);
+              } else {
+                _selectedFilters.removeWhere((t) => t.id == tag.id);
+              }
+            });
+            _loadClips();
+          } : null,
+        )).toList(),
       ),
     );
   }
@@ -220,9 +260,31 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       body: ListView.builder(
         padding: const EdgeInsets.only(top: kToolbarHeight + 16),
-        itemCount: _clips.length,
+        itemCount: _clips.length + 1, // Add 1 for the tags section
         itemBuilder: (context, index) {
-          final clip = _clips[index];
+          if (index == 0) {
+            // Tags section
+            return FutureBuilder<List<Tag>>(
+              key: _tagsKey,
+              future: _db.getAllTags(),
+              builder: (context, snapshot) {
+                if (!snapshot.hasData) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                if (snapshot.data!.isEmpty) {
+                  return const SizedBox.shrink();
+                }
+                return _buildTagChips(
+                  tags: snapshot.data!,
+                  isFilter: true,
+                );
+              },
+            );
+          }
+          
+          // Clip section (index - 1 because index 0 is tags)
+          final clipIndex = index - 1;
+          final clip = _clips[clipIndex];
           return Card(
             margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             child: Column(
@@ -253,17 +315,11 @@ class _HomeScreenState extends State<HomeScreen> {
                           if (!snapshot.hasData || snapshot.data!.isEmpty) {
                             return const SizedBox.shrink();
                           }
-                          return Wrap(
+                          return _buildTagChips(
+                            tags: snapshot.data!,
+                            isFilter: false,
                             spacing: 4,
-                            children: snapshot.data!.map((tag) => Chip(
-                              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                              label: Text(
-                                '#${tag.name}',
-                                style: const TextStyle(fontSize: 12),
-                              ),
-                              padding: const EdgeInsets.all(0),
-                              labelPadding: const EdgeInsets.symmetric(horizontal: 8),
-                            )).toList(),
+                            margin: EdgeInsets.zero,
                           );
                         },
                       ),
