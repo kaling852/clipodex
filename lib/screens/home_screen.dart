@@ -24,6 +24,8 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _isEditing = false;
   List<Tag> _selectedFilters = [];
   Key _tagsKey = UniqueKey();
+  bool _isInitialLoad = true;
+  bool _needsReorder = false;
 
   @override
   void initState() {
@@ -57,39 +59,90 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _loadClips() async {
-    final clips = await _db.getAllClips();
-    
-    if (_selectedFilters.isEmpty) {
-      final sortedClips = List<ClipItem>.from(clips)
-        ..sort((a, b) {
-          if (a.copyCount != b.copyCount) {
-            return b.copyCount.compareTo(a.copyCount);
-          }
-          return a.position.compareTo(b.position);
-        });
+    try {
+      final clips = await _db.getAllClips();
       
-      setState(() => _clips = sortedClips);
-      return;
-    }
+      if (_selectedFilters.isEmpty) {
+        if (_isInitialLoad) {
+          // On initial load, sort by copy count
+          final sortedClips = List<ClipItem>.from(clips)
+            ..sort((a, b) => b.copyCount.compareTo(a.copyCount));
+          
+          // Update positions based on new order
+          for (var i = 0; i < sortedClips.length; i++) {
+            final clip = sortedClips[i];
+            if (clip.position != i) {
+              final updatedClip = ClipItem(
+                id: clip.id,
+                title: clip.title,
+                content: clip.content,
+                position: i,
+                copyCount: clip.copyCount,
+                isMasked: clip.isMasked,
+                createdAt: clip.createdAt,
+              );
+              await _db.updateClip(updatedClip, await _db.getTagsForClip(clip.id));
+            }
+          }
+          
+          setState(() {
+            _clips = sortedClips;
+            _isInitialLoad = false;
+            _needsReorder = false;
+          });
+        } else {
+          // During runtime, maintain current order
+          final sortedClips = List<ClipItem>.from(clips)
+            ..sort((a, b) => a.position.compareTo(b.position));
+          
+          // Check if current order matches usage order
+          bool isOrderedByUsage = true;
+          for (int i = 0; i < sortedClips.length - 1; i++) {
+            if (sortedClips[i].copyCount < sortedClips[i + 1].copyCount) {
+              isOrderedByUsage = false;
+              break;
+            }
+          }
+          
+          setState(() {
+            _clips = sortedClips;
+            _needsReorder = !isOrderedByUsage;
+          });
+        }
+        return;
+      }
 
-    final filteredClips = <ClipItem>[];
-    for (final clip in clips) {
-      final clipTags = await _db.getTagsForClip(clip.id);
-      if (_selectedFilters.any((filterTag) => 
-        clipTags.any((clipTag) => clipTag.id == filterTag.id)
-      )) {
-        filteredClips.add(clip);
+      // Handle filtered clips
+      final allTags = await _db.getAllTags();
+      final clipTagsMap = <String, List<Tag>>{};
+      
+      for (final tag in allTags) {
+        final clipsWithTag = await _db.getClipsWithTag(tag.id);
+        for (final clip in clipsWithTag) {
+          clipTagsMap.putIfAbsent(clip.id, () => []).add(tag);
+        }
+      }
+
+      final filteredClips = clips.where((clip) {
+        final clipTags = clipTagsMap[clip.id] ?? [];
+        return _selectedFilters.any((filterTag) => 
+          clipTags.any((clipTag) => clipTag.id == filterTag.id)
+        );
+      }).toList();
+      
+      // Sort filtered clips by position
+      filteredClips.sort((a, b) => a.position.compareTo(b.position));
+      setState(() => _clips = filteredClips);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error loading clips: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
       }
     }
-    
-    filteredClips.sort((a, b) {
-      if (a.copyCount != b.copyCount) {
-        return b.copyCount.compareTo(a.copyCount);
-      }
-      return a.position.compareTo(b.position);
-    });
-    
-    setState(() => _clips = filteredClips);
   }
 
   Future<void> _showClipDialog({ClipItem? clip}) async {
@@ -173,6 +226,54 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  Future<void> _refreshByUsage() async {
+    try {
+      final clips = await _db.getAllClips();
+      final sortedClips = List<ClipItem>.from(clips)
+        ..sort((a, b) => b.copyCount.compareTo(a.copyCount));
+      
+      // Update positions based on new order
+      for (var i = 0; i < sortedClips.length; i++) {
+        final clip = sortedClips[i];
+        if (clip.position != i) {
+          final updatedClip = ClipItem(
+            id: clip.id,
+            title: clip.title,
+            content: clip.content,
+            position: i,
+            copyCount: clip.copyCount,
+            isMasked: clip.isMasked,
+            createdAt: clip.createdAt,
+          );
+          await _db.updateClip(updatedClip, await _db.getTagsForClip(clip.id));
+        }
+      }
+      
+      setState(() {
+        _clips = sortedClips;
+        _needsReorder = false;
+      });
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Clips reordered by usage'),
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error refreshing clips: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
   Widget _buildTagChips({
     required List<Tag> tags,
     required bool isFilter,
@@ -216,6 +317,12 @@ class _HomeScreenState extends State<HomeScreen> {
               icon: const Icon(Icons.sell_outlined),
               onPressed: _showTagManagementDialog,
               tooltip: 'Manage Tags',
+            ),
+          if (_needsReorder)
+            IconButton(
+              icon: const Icon(Icons.trending_up),
+              onPressed: _refreshByUsage,
+              tooltip: 'Reorder by Usage',
             ),
           IconButton(
             icon: Badge(
